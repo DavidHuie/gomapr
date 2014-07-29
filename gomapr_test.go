@@ -46,7 +46,9 @@ func (m *MRTest) Reduce(key ReduceKey, values []Partial) (ReduceKey, Partial) {
 func TestMRTest(t *testing.T) {
 	mrtest := NewMRTest()
 	runner := NewRunner(mrtest)
+
 	runner.Run(10)
+
 	if runner.reduceWorkspace.groups[2].values[0] != 50 {
 		t.Errorf("Invalid values")
 	}

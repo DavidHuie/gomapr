@@ -102,8 +102,12 @@ func NewRunner(m MapReduce) *Runner {
 }
 
 // Returns the map containing all groups.
-func (r *Runner) Groups() map[ReduceKey]*partialGroup {
-	return r.reduceWorkspace.groups
+func (r *Runner) Groups() map[ReduceKey]Partial {
+	groups := make(map[ReduceKey]Partial)
+	for k, v := range r.reduceWorkspace.groups {
+		groups[k] = v.values[0]
+	}
+	return groups
 }
 
 // Maps the input it receives on its emitted channel, spawning

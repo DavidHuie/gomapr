@@ -15,7 +15,7 @@ func NewMRTest() *MRTest {
 	return &MRTest{1, 100, &sync.Mutex{}}
 }
 
-func (m *MRTest) Emit() (interface{}, error) {
+func (m *MRTest) Emit() (Event, error) {
 	if m.current <= m.Max {
 		defer func() {
 			m.mutex.Lock()
@@ -28,14 +28,14 @@ func (m *MRTest) Emit() (interface{}, error) {
 	}
 }
 
-func (m *MRTest) Map(i interface{}) (interface{}, interface{}) {
+func (m *MRTest) Map(i Event) (ReduceKey, Partial) {
 	if i.(int)%2 == 0 {
 		return 2, 1
 	}
 	return 3, 1
 }
 
-func (m *MRTest) Reduce(key interface{}, values []interface{}) (interface{}, interface{}) {
+func (m *MRTest) Reduce(key ReduceKey, values []Partial) (ReduceKey, Partial) {
 	sum := 0
 	for _, v := range values {
 		sum += v.(int)

@@ -11,21 +11,25 @@ var (
 	EndOfEmit = errors.New("Nothing left to emit")
 )
 
+type Event interface{}
+type ReduceKey interface{}
+type Partial interface{}
+
 type MapReduce interface {
-	Emit() (interface{}, error)
-	Map(interface{}) (interface{}, interface{})
-	Reduce(interface{}, []interface{}) (interface{}, interface{})
+	Emit() (Event, error)
+	Map(Event) (ReduceKey, Partial)
+	Reduce(ReduceKey, []Partial) (ReduceKey, Partial)
 }
 
 // Corresponds to a set of values that a reducer can join.
 type partialGroup struct {
-	values []interface{}
+	values []Partial
 	mutex  *sync.Mutex
 }
 
 func newPartialGroup() *partialGroup {
 	return &partialGroup{
-		values: make([]interface{}, 0),
+		values: make([]Partial, 0),
 		mutex:  &sync.Mutex{},
 	}
 }
@@ -37,24 +41,24 @@ func (p *partialGroup) add(v interface{}) {
 
 // Replaces the contents of the partial group.
 func (p *partialGroup) replace(v interface{}) {
-	p.values = []interface{}{v}
+	p.values = []Partial{v}
 }
 
 // Contains all partial groups.
 type reduceWorkspace struct {
-	groups map[interface{}]*partialGroup
+	groups map[ReduceKey]*partialGroup
 	mutex  *sync.Mutex
 }
 
 func newReduceWorkspace() *reduceWorkspace {
 	return &reduceWorkspace{
-		make(map[interface{}]*partialGroup),
+		make(map[ReduceKey]*partialGroup),
 		&sync.Mutex{},
 	}
 }
 
 // Returns a partial group by its key.
-func (r *reduceWorkspace) getPartialGroup(key interface{}) *partialGroup {
+func (r *reduceWorkspace) getPartialGroup(key ReduceKey) *partialGroup {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -68,7 +72,7 @@ func (r *reduceWorkspace) getPartialGroup(key interface{}) *partialGroup {
 }
 
 // Adds a key-value pair to its appropriate partial group.
-func (r *reduceWorkspace) add(key interface{}, value interface{}) {
+func (r *reduceWorkspace) add(key ReduceKey, value Partial) {
 	partialGroup := r.getPartialGroup(key)
 
 	partialGroup.mutex.Lock()
@@ -77,7 +81,7 @@ func (r *reduceWorkspace) add(key interface{}, value interface{}) {
 }
 
 // Replaces an existing partial group with the input arguments.
-func (r *reduceWorkspace) replace(key interface{}, value interface{}) {
+func (r *reduceWorkspace) replace(key ReduceKey, value Partial) {
 	partialGroup := r.getPartialGroup(key)
 	partialGroup.replace(value)
 }
@@ -99,7 +103,7 @@ func NewRunner(m MapReduce) *Runner {
 
 // Maps the input it receives on its emitted channel, spawning
 // a reduce task when appropriate.
-func (r *Runner) mapWorker(emitted chan interface{}) {
+func (r *Runner) mapWorker(emitted chan Event) {
 	for val := range emitted {
 		key, mapped := r.mr.Map(val)
 		r.reduceWorkspace.add(key, mapped)
@@ -111,7 +115,7 @@ func (r *Runner) mapWorker(emitted chan interface{}) {
 }
 
 // Reduces the partial group with the matching input key.
-func (r *Runner) reduce(key interface{}) {
+func (r *Runner) reduce(key ReduceKey) {
 	partialGroup := r.reduceWorkspace.getPartialGroup(key)
 
 	partialGroup.mutex.Lock()
@@ -132,7 +136,7 @@ func (r *Runner) reduce(key interface{}) {
 
 // Starts the MapReduce task.
 func (r *Runner) Run(mappers int) {
-	emit := make(chan interface{}, mappers)
+	emit := make(chan Event, mappers)
 
 	// Create background mapping workers.
 	for i := 0; i < mappers; i++ {

@@ -12,8 +12,8 @@ var (
 )
 
 type Event interface{}
-type ReduceKey interface{}
 type Partial interface{}
+type ReduceKey interface{}
 
 type MapReduce interface {
 	Emit() (Event, error)

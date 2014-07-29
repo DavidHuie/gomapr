@@ -74,33 +74,38 @@ func NewRunner(m MapReduce) *Runner {
 	}
 }
 
-func (r *Runner) MapWorker(emitted chan interface{}, response chan interface{}, status chan struct{}) {
+func (r *Runner) MapWorker(emitted chan interface{}, w *sync.WaitGroup) {
 	for val := range emitted {
 		key, mapped := r.MR.Map(val)
 		r.Reduced.Add(key, mapped)
-		response <- key
+		w.Add(1)
+		go r.Reduce(key, w)
 	}
-	status <- struct{}{}
+	w.Done()
 }
 
-func (r *Runner) Reduce(key interface{}) {
+func (r *Runner) Reduce(key interface{}, w *sync.WaitGroup) {
+	r.Reduced.mutex.Lock()
 	partials := r.Reduced.Partials[key]
+	r.Reduced.mutex.Unlock()
+
 	partials.mutex.Lock()
 	defer partials.mutex.Unlock()
 	if len(partials.Partials) > 1 {
 		key, partial := r.MR.Reduce(key, partials.Partials)
 		r.Reduced.Partials[key].Partials = []interface{}{partial}
 	}
+	w.Done()
 }
 
 func (r *Runner) Run(mappers int) {
 	emit := make(chan interface{}, mappers)
-	responses := make(chan interface{}, mappers)
-	status := make(chan struct{})
+	wg := sync.WaitGroup{}
 
 	// Create background mapping workers.
 	for i := 0; i < mappers; i++ {
-		go r.MapWorker(emit, responses, status)
+		wg.Add(1)
+		go r.MapWorker(emit, &wg)
 	}
 
 	// Emit all events for mapping.
@@ -115,25 +120,9 @@ func (r *Runner) Run(mappers int) {
 			}
 			emit <- emitted
 		}
-		log.Print("Closing channels")
 		close(emit)
 	}()
 
 	// Wait for all mapping workers to finish.
-	wg := sync.WaitGroup{}
-	workersFinished := 0
-	for {
-		select {
-		case <-status:
-			workersFinished += 1
-			if workersFinished == mappers {
-				return
-			}
-		case key := <-responses:
-			log.Printf("Reducing: %v", key)
-			go r.Reduce(key)
-			wg.Add(1)
-		}
-	}
 	wg.Wait()
 }

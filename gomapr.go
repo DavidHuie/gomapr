@@ -101,6 +101,11 @@ func NewRunner(m MapReduce) *Runner {
 	}
 }
 
+// Returns the map containing all groups.
+func (r *Runner) Groups() map[ReduceKey]*partialGroup {
+	return r.reduceWorkspace.groups
+}
+
 // Maps the input it receives on its emitted channel, spawning
 // a reduce task when appropriate.
 func (r *Runner) mapWorker(emitted chan Event) {

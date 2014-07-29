@@ -47,10 +47,10 @@ func TestMRTest(t *testing.T) {
 	mrtest := NewMRTest()
 	runner := NewRunner(mrtest)
 	runner.Run(10)
-	if runner.ReduceWorkspace.Groups[2].Values[0] != 50 {
+	if runner.reduceWorkspace.groups[2].values[0] != 50 {
 		t.Errorf("Invalid values")
 	}
-	if runner.ReduceWorkspace.Groups[3].Values[0] != 50 {
+	if runner.reduceWorkspace.groups[3].values[0] != 50 {
 		t.Errorf("Invalid values")
 	}
 }

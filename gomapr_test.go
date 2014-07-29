@@ -46,9 +46,7 @@ func (m *MRTest) Reduce(key interface{}, values []interface{}) (interface{}, int
 func TestMRTest(t *testing.T) {
 	mrtest := NewMRTest()
 	runner := NewRunner(mrtest)
-	if err := runner.Run(); err != nil {
-		t.Fatal(err)
-	}
+	runner.Run(1)
 	if runner.Reduced.Partials[2].Partials[0] != 50 {
 		t.Errorf("Invalid values")
 	}

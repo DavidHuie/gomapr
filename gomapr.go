@@ -2,6 +2,7 @@ package gomapr
 
 import (
 	"errors"
+	"log"
 	"sync"
 )
 
@@ -73,41 +74,66 @@ func NewRunner(m MapReduce) *Runner {
 	}
 }
 
-func (r *Runner) ProcessMap(emitted interface{}, c chan struct{}) {
-	key, mapped := r.MR.Map(emitted)
-	r.Reduced.Add(key, mapped)
-	c <- struct{}{}
+func (r *Runner) MapWorker(emitted chan interface{}, response chan interface{}, status chan struct{}) {
+	for val := range emitted {
+		key, mapped := r.MR.Map(val)
+		r.Reduced.Add(key, mapped)
+		response <- key
+	}
+	status <- struct{}{}
 }
 
-func (r *Runner) ProcessReduce(key interface{}, partials []interface{}, c chan struct{}) {
-	key, partial := r.MR.Reduce(key, partials)
-	r.Reduced.Partials[key].Partials = []interface{}{partial}
-	c <- struct{}{}
+func (r *Runner) Reduce(key interface{}) {
+	partials := r.Reduced.Partials[key]
+	partials.mutex.Lock()
+	defer partials.mutex.Unlock()
+	if len(partials.Partials) > 1 {
+		key, partial := r.MR.Reduce(key, partials.Partials)
+		r.Reduced.Partials[key].Partials = []interface{}{partial}
+	}
 }
 
-func (r *Runner) Run() error {
-	c := make(chan struct{})
-	emittedCount := 0
-	for {
-		emitted, err := r.MR.Emit()
-		if err == EndOfEmit {
-			break
-		} else if err != nil {
-			return err
+func (r *Runner) Run(mappers int) {
+	emit := make(chan interface{}, mappers)
+	responses := make(chan interface{}, mappers)
+	status := make(chan struct{})
+
+	// Create background mapping workers.
+	for i := 0; i < mappers; i++ {
+		go r.MapWorker(emit, responses, status)
+	}
+
+	// Emit all events for mapping.
+	go func() {
+		for {
+			emitted, err := r.MR.Emit()
+			if err == EndOfEmit {
+				break
+			} else if err != nil {
+				log.Printf("Error emitting: %v", err)
+				break
+			}
+			emit <- emitted
 		}
-		emittedCount += 1
-		go r.ProcessMap(emitted, c)
+		log.Print("Closing channels")
+		close(emit)
+	}()
+
+	// Wait for all mapping workers to finish.
+	wg := sync.WaitGroup{}
+	workersFinished := 0
+	for {
+		select {
+		case <-status:
+			workersFinished += 1
+			if workersFinished == mappers {
+				return
+			}
+		case key := <-responses:
+			log.Printf("Reducing: %v", key)
+			go r.Reduce(key)
+			wg.Add(1)
+		}
 	}
-	for i := 0; i < emittedCount; i++ {
-		<-c
-	}
-	reducedCount := 0
-	for key, partials := range r.Reduced.Partials {
-		reducedCount += 1
-		go r.ProcessReduce(key, partials.Partials, c)
-	}
-	for i := 0; i < reducedCount; i++ {
-		<-c
-	}
-	return nil
+	wg.Wait()
 }

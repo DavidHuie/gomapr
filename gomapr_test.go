@@ -16,7 +16,7 @@ func NewMRTest() *MRTest {
 }
 
 func (m *MRTest) Emit() (Event, error) {
-	if m.current <= m.Max {
+	if m.current < m.Max {
 		defer func() {
 			m.mutex.Lock()
 			m.current += 1
@@ -24,7 +24,7 @@ func (m *MRTest) Emit() (Event, error) {
 		}()
 		return m.current, nil
 	} else {
-		return 0, EndOfEmit
+		return m.Max, EndOfEmit
 	}
 }
 
@@ -50,9 +50,9 @@ func TestMRTest(t *testing.T) {
 	runner.Run(10)
 
 	if runner.reduceWorkspace.groups[2].values[0] != 50 {
-		t.Errorf("Invalid values")
+		t.Errorf("Invalid values: %v", runner.reduceWorkspace.groups[2].values[0])
 	}
 	if runner.reduceWorkspace.groups[3].values[0] != 50 {
-		t.Errorf("Invalid values")
+		t.Errorf("Invalid values: %v", runner.reduceWorkspace.groups[3].values[0])
 	}
 }

@@ -148,13 +148,17 @@ func (r *Runner) Run(mappers int) {
 	go func() {
 		for {
 			emitted, err := r.mr.Emit()
-			if err == EndOfEmit {
-				break
-			} else if err != nil {
+			if err != EndOfEmit && err != nil {
 				log.Printf("Error emitting: %v", err)
 				break
 			}
+
 			emit <- emitted
+
+			if err == EndOfEmit {
+				break
+			}
+
 		}
 		close(emit)
 	}()

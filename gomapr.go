@@ -3,6 +3,7 @@ package gomapr
 import (
 	"errors"
 	"log"
+	"reflect"
 	"sync"
 )
 
@@ -16,99 +17,129 @@ type MapReduce interface {
 	Reduce(interface{}, []interface{}) (interface{}, interface{})
 }
 
-type Partials struct {
-	Partials []interface{}
-	mutex    *sync.Mutex
+// Corresponds to a set of values that a reducer can join.
+type PartialGroup struct {
+	Values []interface{}
+	mutex  *sync.Mutex
 }
 
-func NewPartials() *Partials {
-	return &Partials{
-		Partials: make([]interface{}, 0),
-		mutex:    &sync.Mutex{},
+func NewPartialGroup() *PartialGroup {
+	return &PartialGroup{
+		Values: make([]interface{}, 0),
+		mutex:  &sync.Mutex{},
 	}
 }
 
-func (p *Partials) Add(v interface{}) {
+// Adds a value to the group.
+func (p *PartialGroup) Add(v interface{}) {
 	p.mutex.Lock()
-	p.Partials = append(p.Partials, v)
+	p.Values = append(p.Values, v)
 	p.mutex.Unlock()
 }
 
-type Reduced struct {
-	Partials map[interface{}]*Partials
-	mutex    *sync.Mutex
+// Replaces the contents of the partial group.
+func (p *PartialGroup) replace(v interface{}) {
+	p.Values = []interface{}{v}
 }
 
-func NewReduced() *Reduced {
-	return &Reduced{
-		make(map[interface{}]*Partials),
+// Contains all partial groups.
+type ReduceWorkspace struct {
+	Groups map[interface{}]*PartialGroup
+	mutex  *sync.Mutex
+}
+
+func NewReduceWorkspace() *ReduceWorkspace {
+	return &ReduceWorkspace{
+		make(map[interface{}]*PartialGroup),
 		&sync.Mutex{},
 	}
 }
 
-func (r *Reduced) GetPartials(key interface{}) *Partials {
+// Returns a partial group by its key.
+func (r *ReduceWorkspace) GetPartialGroup(key interface{}) *PartialGroup {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	partials, ok := r.Partials[key]
+
+	partialGroup, ok := r.Groups[key]
 	if !ok {
-		partials = NewPartials()
-		r.Partials[key] = partials
+		partialGroup = NewPartialGroup()
+		r.Groups[key] = partialGroup
 	}
-	return partials
+
+	return partialGroup
 }
 
-func (r *Reduced) Add(key interface{}, value interface{}) {
-	partials := r.GetPartials(key)
-	partials.Add(value)
+// Adds a key-value pair to its appropriate partial group.
+func (r *ReduceWorkspace) Add(key interface{}, value interface{}) {
+	partialGroup := r.GetPartialGroup(key)
+	partialGroup.Add(value)
 }
 
+// Replaces an existing partial group with the input arguments.
+func (r *ReduceWorkspace) Replace(key interface{}, value interface{}) {
+	partialGroup := r.GetPartialGroup(key)
+	partialGroup.replace(value)
+}
+
+// Contains configuration for a MapReduce task.
 type Runner struct {
-	Reduced *Reduced
-	MR      MapReduce
+	ReduceWorkspace *ReduceWorkspace
+	MR              MapReduce
+	wg              *sync.WaitGroup
 }
 
 func NewRunner(m MapReduce) *Runner {
 	return &Runner{
-		Reduced: NewReduced(),
-		MR:      m,
+		ReduceWorkspace: NewReduceWorkspace(),
+		MR:              m,
+		wg:              &sync.WaitGroup{},
 	}
 }
 
-func (r *Runner) MapWorker(emitted chan interface{}, w *sync.WaitGroup) {
+// Maps the input it receives on its emitted channel, spawning
+// a reduce task when appropriate.
+func (r *Runner) MapWorker(emitted chan interface{}) {
 	for val := range emitted {
 		key, mapped := r.MR.Map(val)
-		r.Reduced.Add(key, mapped)
-		w.Add(1)
-		go r.Reduce(key, w)
+		r.ReduceWorkspace.Add(key, mapped)
+		r.wg.Add(1)
+		go r.Reduce(key)
 	}
-	w.Done()
+
+	r.wg.Done()
 }
 
-func (r *Runner) Reduce(key interface{}, w *sync.WaitGroup) {
-	r.Reduced.mutex.Lock()
-	partials := r.Reduced.Partials[key]
-	r.Reduced.mutex.Unlock()
+// Reduces the partial group with the matching input key.
+func (r *Runner) Reduce(key interface{}) {
+	partialGroup := r.ReduceWorkspace.GetPartialGroup(key)
 
-	partials.mutex.Lock()
-	defer partials.mutex.Unlock()
-	if len(partials.Partials) > 1 {
-		key, partial := r.MR.Reduce(key, partials.Partials)
-		r.Reduced.Partials[key].Partials = []interface{}{partial}
+	partialGroup.mutex.Lock()
+	defer partialGroup.mutex.Unlock()
+
+	if len(partialGroup.Values) > 1 {
+		newKey, partial := r.MR.Reduce(key, partialGroup.Values)
+
+		if reflect.DeepEqual(key, newKey) {
+			partialGroup.replace(partial)
+		} else {
+			r.ReduceWorkspace.Replace(key, partial)
+		}
 	}
-	w.Done()
+
+	r.wg.Done()
 }
 
+// Starts the MapReduce task.
 func (r *Runner) Run(mappers int) {
 	emit := make(chan interface{}, mappers)
-	wg := sync.WaitGroup{}
 
 	// Create background mapping workers.
 	for i := 0; i < mappers; i++ {
-		wg.Add(1)
-		go r.MapWorker(emit, &wg)
+		r.wg.Add(1)
+		go r.MapWorker(emit)
 	}
 
-	// Emit all events for mapping.
+	// Emit all events.
 	go func() {
 		for {
 			emitted, err := r.MR.Emit()
@@ -123,6 +154,5 @@ func (r *Runner) Run(mappers int) {
 		close(emit)
 	}()
 
-	// Wait for all mapping workers to finish.
-	wg.Wait()
+	r.wg.Wait()
 }

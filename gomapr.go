@@ -73,7 +73,21 @@ func NewRunner(m MapReduce) *Runner {
 	}
 }
 
+func (r *Runner) ProcessMap(emitted interface{}, c chan struct{}) {
+	key, mapped := r.MR.Map(emitted)
+	r.Reduced.Add(key, mapped)
+	c <- struct{}{}
+}
+
+func (r *Runner) ProcessReduce(key interface{}, partials []interface{}, c chan struct{}) {
+	key, partial := r.MR.Reduce(key, partials)
+	r.Reduced.Partials[key].Partials = []interface{}{partial}
+	c <- struct{}{}
+}
+
 func (r *Runner) Run() error {
+	c := make(chan struct{})
+	emittedCount := 0
 	for {
 		emitted, err := r.MR.Emit()
 		if err == EndOfEmit {
@@ -81,13 +95,19 @@ func (r *Runner) Run() error {
 		} else if err != nil {
 			return err
 		}
-		key, mapped := r.MR.Map(emitted)
-		r.Reduced.Add(key, mapped)
-
+		emittedCount += 1
+		go r.ProcessMap(emitted, c)
 	}
+	for i := 0; i < emittedCount; i++ {
+		<-c
+	}
+	reducedCount := 0
 	for key, partials := range r.Reduced.Partials {
-		key, partial := r.MR.Reduce(key, partials.Partials)
-		r.Reduced.Partials[key].Partials = []interface{}{partial}
+		reducedCount += 1
+		go r.ProcessReduce(key, partials.Partials, c)
+	}
+	for i := 0; i < reducedCount; i++ {
+		<-c
 	}
 	return nil
 }

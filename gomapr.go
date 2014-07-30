@@ -24,13 +24,13 @@ type MapReduce interface {
 // Corresponds to a set of values that a reducer can join.
 type partialGroup struct {
 	values []Partial
-	mutex  *sync.Mutex
+	l      *sync.RWMutex
 }
 
 func newPartialGroup() *partialGroup {
 	return &partialGroup{
 		values: make([]Partial, 0),
-		mutex:  &sync.Mutex{},
+		l:      &sync.RWMutex{},
 	}
 }
 
@@ -47,20 +47,20 @@ func (p *partialGroup) replace(v interface{}) {
 // Contains all partial groups.
 type reduceWorkspace struct {
 	groups map[ReduceKey]*partialGroup
-	mutex  *sync.Mutex
+	l      *sync.RWMutex
 }
 
 func newReduceWorkspace() *reduceWorkspace {
 	return &reduceWorkspace{
 		make(map[ReduceKey]*partialGroup),
-		&sync.Mutex{},
+		&sync.RWMutex{},
 	}
 }
 
 // Returns a partial group by its key.
 func (r *reduceWorkspace) getPartialGroup(key ReduceKey) *partialGroup {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.l.Lock()
+	defer r.l.Unlock()
 
 	partialGroup, ok := r.groups[key]
 	if !ok {
@@ -75,15 +75,18 @@ func (r *reduceWorkspace) getPartialGroup(key ReduceKey) *partialGroup {
 func (r *reduceWorkspace) add(key ReduceKey, value Partial) {
 	partialGroup := r.getPartialGroup(key)
 
-	partialGroup.mutex.Lock()
+	partialGroup.l.Lock()
 	partialGroup.add(value)
-	partialGroup.mutex.Unlock()
+	partialGroup.l.Unlock()
 }
 
 // Replaces an existing partial group with the input arguments.
 func (r *reduceWorkspace) replace(key ReduceKey, value Partial) {
 	partialGroup := r.getPartialGroup(key)
+
+	partialGroup.l.Lock()
 	partialGroup.replace(value)
+	partialGroup.l.Unlock()
 }
 
 // Contains configuration for a MapReduce task.
@@ -101,12 +104,18 @@ func NewRunner(m MapReduce) *Runner {
 	}
 }
 
-// Returns the map containing all groups.
+// Returns the map containing all groups. Only safe to call after
+// the task has completed.
 func (r *Runner) Groups() map[ReduceKey]Partial {
+	r.reduceWorkspace.l.Lock()
+	defer r.reduceWorkspace.l.Unlock()
+
 	groups := make(map[ReduceKey]Partial)
+
 	for k, v := range r.reduceWorkspace.groups {
 		groups[k] = v.values[0]
 	}
+
 	return groups
 }
 
@@ -127,8 +136,8 @@ func (r *Runner) mapWorker(emitted chan Event) {
 func (r *Runner) reduce(key ReduceKey) {
 	partialGroup := r.reduceWorkspace.getPartialGroup(key)
 
-	partialGroup.mutex.Lock()
-	defer partialGroup.mutex.Unlock()
+	partialGroup.l.Lock()
+	defer partialGroup.l.Unlock()
 
 	if len(partialGroup.values) > 1 {
 		newKey, partial := r.mr.Reduce(key, partialGroup.values)

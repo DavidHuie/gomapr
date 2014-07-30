@@ -45,9 +45,9 @@ func (m *MRTest) Reduce(key ReduceKey, values []Partial) (ReduceKey, Partial) {
 
 func TestMRTest(t *testing.T) {
 	mrtest := NewMRTest()
-	runner := NewRunner(mrtest)
+	runner := NewRunner(mrtest, 10, .5)
 
-	runner.Run(10)
+	runner.Run()
 
 	groups := runner.Groups()
 

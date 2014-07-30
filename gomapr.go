@@ -3,6 +3,7 @@ package gomapr
 import (
 	"errors"
 	"log"
+	"math/rand"
 	"sync"
 )
 
@@ -92,14 +93,28 @@ func (r *reduceWorkspace) replace(key ReduceKey, value Partial) {
 type Runner struct {
 	reduceWorkspace *reduceWorkspace
 	mr              MapReduce
-	wg              *sync.WaitGroup
+	mapWg           *sync.WaitGroup
+	reduceWg        *sync.WaitGroup
+	mappers         int
+	reduceFactor    float64
+	unreduced       map[ReduceKey]struct{}
+	unreducedL      *sync.Mutex
 }
 
-func NewRunner(m MapReduce) *Runner {
+func NewRunner(mr MapReduce, mappers int, reduceFactor float64) *Runner {
+	if reduceFactor < 0 || reduceFactor > 1 {
+		panic("Invalid reduce factor")
+	}
+
 	return &Runner{
 		reduceWorkspace: newReduceWorkspace(),
-		mr:              m,
-		wg:              &sync.WaitGroup{},
+		mr:              mr,
+		mapWg:           &sync.WaitGroup{},
+		reduceWg:        &sync.WaitGroup{},
+		mappers:         mappers,
+		reduceFactor:    reduceFactor,
+		unreduced:       make(map[ReduceKey]struct{}),
+		unreducedL:      &sync.Mutex{},
 	}
 }
 
@@ -124,11 +139,23 @@ func (r *Runner) mapWorker(emitted chan Event) {
 	for val := range emitted {
 		key, mapped := r.mr.Map(val)
 		r.reduceWorkspace.add(key, mapped)
-		r.wg.Add(1)
-		go r.reduce(key)
+
+		// Launch reduce step probabilistically.
+		if rand.Float64() < r.reduceFactor {
+			r.unreducedL.Lock()
+			delete(r.unreduced, key)
+			r.unreducedL.Unlock()
+
+			r.reduceWg.Add(1)
+			go r.reduce(key)
+		} else {
+			r.unreducedL.Lock()
+			r.unreduced[key] = struct{}{}
+			r.unreducedL.Unlock()
+		}
 	}
 
-	r.wg.Done()
+	r.mapWg.Done()
 }
 
 // Reduces the partial group with the matching input key.
@@ -148,16 +175,16 @@ func (r *Runner) reduce(key ReduceKey) {
 		}
 	}
 
-	r.wg.Done()
+	r.reduceWg.Done()
 }
 
 // Starts the MapReduce task.
-func (r *Runner) Run(mappers int) {
-	emit := make(chan Event, mappers)
+func (r *Runner) Run() {
+	emit := make(chan Event, r.mappers)
 
 	// Create background mapping workers.
-	for i := 0; i < mappers; i++ {
-		r.wg.Add(1)
+	for i := 0; i < r.mappers; i++ {
+		r.mapWg.Add(1)
 		go r.mapWorker(emit)
 	}
 
@@ -180,5 +207,13 @@ func (r *Runner) Run(mappers int) {
 		close(emit)
 	}()
 
-	r.wg.Wait()
+	r.mapWg.Wait()
+
+	// Reduce unreduced keys.
+	for key, _ := range r.unreduced {
+		r.reduceWg.Add(1)
+		go r.reduce(key)
+	}
+
+	r.reduceWg.Wait()
 }

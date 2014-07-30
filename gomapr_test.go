@@ -49,10 +49,12 @@ func TestMRTest(t *testing.T) {
 
 	runner.Run(10)
 
-	if runner.reduceWorkspace.groups[2].values[0] != 500000 {
-		t.Errorf("Invalid values: %v", runner.reduceWorkspace.groups[2].values[0])
+	groups := runner.Groups()
+
+	if groups[2] != 500000 {
+		t.Errorf("Invalid values: %v", groups[2])
 	}
-	if runner.reduceWorkspace.groups[3].values[0] != 500000 {
-		t.Errorf("Invalid values: %v", runner.reduceWorkspace.groups[3].values[0])
+	if groups[3] != 500000 {
+		t.Errorf("Invalid values: %v", groups[3])
 	}
 }

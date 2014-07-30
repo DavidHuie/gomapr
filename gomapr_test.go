@@ -12,7 +12,7 @@ type MRTest struct {
 }
 
 func NewMRTest() *MRTest {
-	return &MRTest{1, 100, &sync.Mutex{}}
+	return &MRTest{1, 1000000, &sync.Mutex{}}
 }
 
 func (m *MRTest) Emit() (Event, error) {
@@ -49,10 +49,10 @@ func TestMRTest(t *testing.T) {
 
 	runner.Run(10)
 
-	if runner.reduceWorkspace.groups[2].values[0] != 50 {
+	if runner.reduceWorkspace.groups[2].values[0] != 500000 {
 		t.Errorf("Invalid values: %v", runner.reduceWorkspace.groups[2].values[0])
 	}
-	if runner.reduceWorkspace.groups[3].values[0] != 50 {
+	if runner.reduceWorkspace.groups[3].values[0] != 500000 {
 		t.Errorf("Invalid values: %v", runner.reduceWorkspace.groups[3].values[0])
 	}
 }

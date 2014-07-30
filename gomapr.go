@@ -3,7 +3,6 @@ package gomapr
 import (
 	"errors"
 	"log"
-	"reflect"
 	"sync"
 )
 
@@ -142,7 +141,7 @@ func (r *Runner) reduce(key ReduceKey) {
 	if len(partialGroup.values) > 1 {
 		newKey, partial := r.mr.Reduce(key, partialGroup.values)
 
-		if reflect.DeepEqual(key, newKey) {
+		if key == newKey {
 			partialGroup.replace(partial)
 		} else {
 			r.reduceWorkspace.replace(key, partial)

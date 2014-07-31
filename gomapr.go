@@ -132,7 +132,7 @@ func (r *Runner) Groups() map[ReduceKey]Partial {
 
 // Returns the slice containing all groups. Only safe to call after
 // the task has completed.
-func (r *Runner) GroupSlice() ResultSlice {
+func (r *Runner) Results() ResultSlice {
 	groups := make([]*Result, 0)
 
 	for k, v := range r.reduceWorkspace.groups {

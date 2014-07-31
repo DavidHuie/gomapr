@@ -180,31 +180,31 @@ func (r *Runner) reduce(key ReduceKey) {
 
 // Starts the MapReduce task.
 func (r *Runner) Run() {
-	emit := make(chan Event, r.mappers)
+	events := make(chan Event, r.mappers)
 
 	// Create background mapping workers.
 	for i := 0; i < r.mappers; i++ {
 		r.mapWg.Add(1)
-		go r.mapWorker(emit)
+		go r.mapWorker(events)
 	}
 
 	// Emit all events.
 	go func() {
 		for {
-			emitted, err := r.mr.Emit()
+			event, err := r.mr.Emit()
 			if err != EndOfEmit && err != nil {
 				log.Printf("Error emitting: %v", err)
 				break
 			}
 
-			emit <- emitted
+			events <- event
 
 			if err == EndOfEmit {
 				break
 			}
 
 		}
-		close(emit)
+		close(events)
 	}()
 
 	r.mapWg.Wait()
@@ -216,4 +216,28 @@ func (r *Runner) Run() {
 	}
 
 	r.reduceWg.Wait()
+}
+
+// Runs MapReduce synchronously.
+func (r *Runner) RunSynchronous() {
+	for {
+		event, err := r.mr.Emit()
+		if err != EndOfEmit && err != nil {
+			log.Printf("Error emitting: %v", err)
+			break
+		}
+
+		key, mapped := r.mr.Map(event)
+		r.reduceWorkspace.add(key, mapped)
+
+		if err == EndOfEmit {
+			break
+		}
+
+	}
+
+	for key, _ := range r.reduceWorkspace.groups {
+		r.reduceWg.Add(1)
+		r.reduce(key)
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"sort"
 
 	"github.com/DavidHuie/gomapr"
 )
@@ -44,16 +45,16 @@ func (l *LogCount) Map(e gomapr.Event) (gomapr.ReduceKey, gomapr.Partial) {
 	submatches := l.re.FindSubmatch([]byte(e.(string)))
 
 	if submatches != nil {
-		return string(submatches[1]), 1
+		return string(submatches[1]), int64(1)
 	}
 
-	return "(none)", 1
+	return "(none)", int64(1)
 }
 
 func (l *LogCount) Reduce(k gomapr.ReduceKey, p []gomapr.Partial) (gomapr.ReduceKey, gomapr.Partial) {
-	sum := 0
+	sum := int64(0)
 	for _, partial := range p {
-		sum += partial.(int)
+		sum += partial.(int64)
 	}
 	return k, sum
 }
@@ -75,9 +76,11 @@ func main() {
 
 	runner := gomapr.NewRunner(lc, runtime.NumCPU(), 1)
 	runner.Run()
+	results := runner.Results()
+	sort.Sort(results)
 
 	resultsPrinted := 0
-	for _, result := range runner.Results() {
+	for _, result := range results {
 		fmt.Printf("Key: '%v'\n", result.Key)
 		fmt.Printf("Value: %v\n", result.Value)
 

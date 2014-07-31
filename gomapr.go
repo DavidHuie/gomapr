@@ -24,13 +24,13 @@ type MapReduce interface {
 // Corresponds to a set of values that a reducer can join.
 type partialGroup struct {
 	values []Partial
-	l      *sync.RWMutex
+	l      *sync.Mutex
 }
 
 func newPartialGroup() *partialGroup {
 	return &partialGroup{
 		values: make([]Partial, 0),
-		l:      &sync.RWMutex{},
+		l:      &sync.Mutex{},
 	}
 }
 
@@ -47,13 +47,13 @@ func (p *partialGroup) replace(v interface{}) {
 // Contains all partial groups.
 type reduceWorkspace struct {
 	groups map[ReduceKey]*partialGroup
-	l      *sync.RWMutex
+	l      *sync.Mutex
 }
 
 func newReduceWorkspace() *reduceWorkspace {
 	return &reduceWorkspace{
 		make(map[ReduceKey]*partialGroup),
-		&sync.RWMutex{},
+		&sync.Mutex{},
 	}
 }
 

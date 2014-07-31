@@ -13,7 +13,7 @@ func (r ResultSlice) Len() int {
 }
 
 func (r ResultSlice) Less(i, j int) bool {
-	return r[i].Value.(int64) < r[j].Value.(int64)
+	return r[i].Value.(int64) > r[j].Value.(int64)
 }
 
 func (r ResultSlice) Swap(i, j int) {

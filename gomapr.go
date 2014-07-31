@@ -121,13 +121,25 @@ func NewRunner(mr MapReduce, mappers int, reduceFactor float64) *Runner {
 // Returns the map containing all groups. Only safe to call after
 // the task has completed.
 func (r *Runner) Groups() map[ReduceKey]Partial {
-	r.reduceWorkspace.l.Lock()
-	defer r.reduceWorkspace.l.Unlock()
-
 	groups := make(map[ReduceKey]Partial)
 
 	for k, v := range r.reduceWorkspace.groups {
 		groups[k] = v.values[0]
+	}
+
+	return groups
+}
+
+// Returns the slice containing all groups. Only safe to call after
+// the task has completed.
+func (r *Runner) GroupSlice() ResultSlice {
+	groups := make([]*Result, 0)
+
+	for k, v := range r.reduceWorkspace.groups {
+		groups = append(
+			groups,
+			&Result{k, v.values[0]},
+		)
 	}
 
 	return groups

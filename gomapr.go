@@ -214,7 +214,7 @@ func (r *Runner) Run() {
 		r.reduceWg.Add(1)
 		go r.reduce(key)
 	}
-
+	r.unreduced = make(map[ReduceKey]struct{})
 	r.reduceWg.Wait()
 }
 
